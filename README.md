@@ -74,8 +74,6 @@ chrome://extensions/
 
 ## 配色方案
 
-灵感来自 [DeepLumen](https://www.deeplumen.com) 暖金风格：
-
 | 角色 | 色值 |
 |------|------|
 | 页面背景 | `#f7f3ec` 暖米色 |
