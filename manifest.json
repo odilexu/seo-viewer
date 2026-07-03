@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Schema Markup Viewer",
+  "version": "1.0.0",
+  "description": "查看当前页面的结构化数据（Schema.org markup），JSON 格式化展示",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "32": "icon32.png",
+      "48": "icon48.png",
+      "64": "icon64.png",
+      "128": "icon128.png",
+      "256": "icon256.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "32": "icon32.png",
+    "48": "icon48.png",
+    "64": "icon64.png",
+    "128": "icon128.png",
+    "256": "icon256.png"
+  }
+}

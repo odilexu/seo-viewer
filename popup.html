@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Schema Markup Viewer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>📊 Schema Markup</h1>
+      <p class="subtitle">结构化数据查看器</p>
+    </header>
+    
+    <div id="status" class="status"></div>
+    
+    <div id="schema-list" class="schema-list"></div>
+    
+    <footer>
+      <button id="refresh" class="btn-refresh">🔄 刷新</button>
+      <button id="copy-all" class="btn-copy">📋 复制全部</button>
+    </footer>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>

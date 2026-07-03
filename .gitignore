@@ -1,0 +1,8 @@
+# 忽略图标生成脚本的旧版本产物
+design-icons.js
+generate-icons.js
+*.bak
+
+# 系统文件
+.DS_Store
+Thumbs.db

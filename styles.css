@@ -1,0 +1,353 @@
+/* DeepLumen 风格配色 - 改进版 */
+:root {
+  --bg-page: #f7f3ec;
+  --bg-card: #ffffff;
+  --bg-header: linear-gradient(135deg, #ffffff 0%, #f7f3ec 100%);
+  --bg-header-accent: #be8e3e;
+  --bg-content: #ffffff;
+  --bg-hover: #f7f3ec;
+  --bg-status-success: #f7f3ec;
+  --bg-status-error: #fdf1ef;
+
+  --primary: #be8e3e;
+  --primary-dark: #9a6a30;
+  --primary-light: #e8d5b0;
+  --primary-faded: rgba(190, 142, 62, 0.1);
+
+  --text-primary: #272422;
+  --text-secondary: #8c857f;
+  --text-on-primary: #ffffff;
+  --text-status-success: #725e42;
+  --text-status-error: #c2453e;
+
+  --border-default: #e6e0d8;
+  --border-hover: #c4a87c;
+
+  --highlight-key: #be8e3e;
+  --highlight-string: #4a8c5e;
+  --highlight-number: #c96b2e;
+  --highlight-boolean: #7c5f4a;
+  --highlight-null: #b8b2ac;
+
+  --scrollbar-track: #e6e0d8;
+  --scrollbar-thumb: #c4a87c;
+
+  --shadow-sm: 0 1px 3px rgba(114, 94, 66, 0.08);
+  --shadow-hover: 0 4px 12px rgba(190, 142, 62, 0.18);
+
+  --font-mono: 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', 'Monaco', 'Menlo', 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', sans-serif;
+  --font-ui: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, 'Microsoft YaHei', 'PingFang SC', 'Noto Sans SC', Arial, sans-serif;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  background: var(--bg-page);
+  min-width: 480px;
+  max-width: 660px;
+  color: var(--text-primary);
+}
+
+.container {
+  padding: 14px;
+}
+
+/* Header */
+header {
+  text-align: center;
+  margin-bottom: 14px;
+  padding: 16px 16px 12px;
+  background: var(--bg-header);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* subtle gold top bar */
+header::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: var(--bg-header-accent);
+}
+
+header h1 {
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.subtitle {
+  font-size: 11px;
+  color: var(--text-secondary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* Status */
+.status {
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  text-align: center;
+  border: 1px solid var(--border-default);
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+.status.success {
+  color: var(--text-status-success);
+  background: var(--bg-card);
+  border-color: var(--primary);
+}
+
+.status.error {
+  color: var(--text-status-error);
+  background: var(--bg-card);
+  border-color: var(--text-status-error);
+}
+
+.status.empty {
+  color: var(--text-secondary);
+  background: var(--bg-page);
+  border-color: var(--border-default);
+}
+
+/* Schema list */
+.schema-list {
+  max-height: 450px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+}
+
+/* Schema card */
+.schema-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
+  margin-bottom: 10px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  box-shadow: var(--shadow-sm);
+}
+
+.schema-item:hover {
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-hover);
+}
+
+/* Header bar — light with gold accent */
+.schema-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-default);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.schema-header:hover {
+  background: var(--bg-hover);
+}
+
+.schema-type {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+
+.schema-type .icon {
+  font-size: 15px;
+}
+
+.schema-type .type-name {
+  background: var(--primary-faded);
+  color: var(--primary-dark);
+  padding: 2px 9px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid var(--primary-light);
+}
+
+.toggle-icon {
+  color: var(--text-secondary);
+  font-size: 13px;
+  transition: transform 0.2s ease;
+}
+
+.schema-item.collapsed .toggle-icon {
+  transform: rotate(-90deg);
+}
+
+/* Content area */
+.schema-content {
+  padding: 12px 14px;
+  background: var(--bg-content);
+  transition: all 0.2s ease;
+}
+
+.schema-item.collapsed .schema-content {
+  display: none;
+}
+
+/* JSON viewer */
+.json-viewer {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.json-viewer .key {
+  color: var(--highlight-key);
+  font-weight: 500;
+}
+
+.json-viewer .string {
+  color: var(--highlight-string);
+}
+
+.json-viewer .number {
+  color: var(--highlight-number);
+}
+
+.json-viewer .boolean {
+  color: var(--highlight-boolean);
+  font-weight: 500;
+}
+
+.json-viewer .null {
+  color: var(--highlight-null);
+}
+
+/* Action buttons bar */
+.schema-actions {
+  display: flex;
+  gap: 6px;
+  padding: 8px 14px;
+  background: var(--bg-page);
+  border-top: 1px solid var(--border-default);
+}
+
+.btn-small {
+  padding: 5px 10px;
+  font-size: 11px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+
+.btn-small-copy {
+  background: var(--primary);
+  color: var(--text-on-primary);
+}
+
+.btn-small-copy:hover {
+  background: var(--primary-dark);
+}
+
+/* Footer */
+footer {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-default);
+}
+
+.btn-refresh, .btn-copy {
+  flex: 1;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-family: var(--font-mono);
+}
+
+.btn-refresh {
+  background: var(--bg-page);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+}
+
+.btn-refresh:hover {
+  background: var(--border-default);
+}
+
+.btn-copy {
+  background: var(--primary);
+  color: var(--text-on-primary);
+  border: 1px solid var(--primary-dark);
+}
+
+.btn-copy:hover {
+  background: var(--primary-dark);
+}
+
+/* Scrollbar */
+.schema-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.schema-list::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+  border-radius: 3px;
+}
+
+.schema-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+.schema-list::-webkit-scrollbar-thumb:hover {
+  background: var(--primary);
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 32px 20px;
+  color: var(--text-secondary);
+}
+
+.empty-state .icon {
+  font-size: 44px;
+  margin-bottom: 10px;
+  opacity: 0.35;
+}
+
+.empty-state p {
+  font-size: 14px;
+  margin-bottom: 6px;
+  color: var(--text-primary);
+}
+
+.empty-state .hint {
+  font-size: 12px;
+  opacity: 0.6;
+}
