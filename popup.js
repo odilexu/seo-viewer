@@ -33,7 +33,7 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (!tab) return;
-      const popupUrl = chrome.runtime.getURL('popup.html');
+      const popupUrl = chrome.runtime.getURL('popup.html') + '?tabId=' + tab.id;
       await chrome.windows.create({
         url: popupUrl,
         type: 'popup',
@@ -42,7 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
         left: 100,
         top: 100
       });
-      window.close(); // close the little popup
+      window.close();
     } catch (e) {
       console.error('Popout failed:', e);
     }
@@ -63,7 +63,15 @@ document.addEventListener('DOMContentLoaded', () => {
     schemaListEl.innerHTML = '';
 
     try {
-      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      // Use ?tabId= from URL (pop-out window) or fallback to active tab
+      const params = new URLSearchParams(location.search);
+      let tab;
+      const targetTabId = parseInt(params.get('tabId'), 10);
+      if (targetTabId) {
+        tab = await chrome.tabs.get(targetTabId);
+      } else {
+        [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      }
       if (!tab) {
         showStatus('无法获取当前标签页', 'error');
         return;
