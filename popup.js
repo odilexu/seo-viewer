@@ -6,6 +6,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const refreshBtn = document.getElementById('refresh');
   const actionBtn = document.getElementById('tab-action');
 
+  const popoutBtn = document.getElementById('popout');
   const contentFieldsEl = document.getElementById('content-fields');
   const indexabilityFieldsEl = document.getElementById('indexability-fields');
   const schemaListEl = document.getElementById('schema-list');
@@ -25,6 +26,26 @@ document.addEventListener('DOMContentLoaded', () => {
       document.getElementById(`tab-${currentTab}`).classList.add('active');
       updateActionButton();
     });
+  });
+
+  // ──── Pop-out Button ────
+  popoutBtn.addEventListener('click', async () => {
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (!tab) return;
+      const popupUrl = chrome.runtime.getURL('popup.html');
+      await chrome.windows.create({
+        url: popupUrl,
+        type: 'popup',
+        width: 860,
+        height: 640,
+        left: 100,
+        top: 100
+      });
+      window.close(); // close the little popup
+    } catch (e) {
+      console.error('Popout failed:', e);
+    }
   });
 
   // ──── Initial Load ────
