@@ -1,77 +1,168 @@
-// Schema Markup Viewer - Popup Script
+// SEO Inspector — Popup Script
 
 document.addEventListener('DOMContentLoaded', () => {
+  // ──── DOM refs ────
   const statusEl = document.getElementById('status');
-  const schemaListEl = document.getElementById('schema-list');
   const refreshBtn = document.getElementById('refresh');
-  const copyAllBtn = document.getElementById('copy-all');
-  
-  let schemas = [];
-  
-  // 初始化加载
-  loadSchemas();
-  
-  // 刷新按钮
-  refreshBtn.addEventListener('click', () => {
-    loadSchemas();
+  const actionBtn = document.getElementById('tab-action');
+
+  const contentFieldsEl = document.getElementById('content-fields');
+  const indexabilityFieldsEl = document.getElementById('indexability-fields');
+  const schemaListEl = document.getElementById('schema-list');
+
+  // Tab state
+  let currentTab = 'content';
+  let pageData = null; // { title, description, h1s, canonicalRaw, canonicalRendered, robots, hreflangs, schemas }
+  let dataLoaded = false;
+
+  // ──── Tab Switching ────
+  document.querySelectorAll('.tabs-sidebar .tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.tabs-sidebar .tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      tab.classList.add('active');
+      currentTab = tab.dataset.tab;
+      document.getElementById(`tab-${currentTab}`).classList.add('active');
+      updateActionButton();
+    });
   });
-  
-  // 复制全部按钮
-  copyAllBtn.addEventListener('click', () => {
-    if (schemas.length === 0) {
-      showStatus('没有可复制的数据', 'empty');
-      return;
-    }
-    
-    const allJson = schemas.map(s => s.data).flat();
-    copyToClipboard(JSON.stringify(allJson, null, 2));
-    showStatus('已复制到剪贴板！', 'success');
-  });
-  
-  // 加载 Schema 数据
-  async function loadSchemas() {
-    showStatus('正在提取结构化数据...', 'loading');
+
+  // ──── Initial Load ────
+  loadAllData();
+
+  refreshBtn.addEventListener('click', loadAllData);
+  actionBtn.addEventListener('click', handleActionClick);
+
+  // ──── Main Load ────
+  async function loadAllData() {
+    showStatus('正在提取页面数据...', 'loading');
+    dataLoaded = false;
+    contentFieldsEl.innerHTML = '';
+    indexabilityFieldsEl.innerHTML = '';
     schemaListEl.innerHTML = '';
-    
+
     try {
-      // 获取当前活动标签页
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      
       if (!tab) {
         showStatus('无法获取当前标签页', 'error');
         return;
       }
-      
-      // 注入内容脚本并执行
+
       const results = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
-        function: extractSchemas
+        function: extractAllSeoData
       });
-      
-      schemas = results[0].result || [];
-      
-      if (schemas.length === 0) {
-        showStatus('当前页面未发现结构化数据', 'empty');
-        showEmptyState();
-        return;
-      }
-      
-      showStatus(`发现 ${schemas.length} 个结构化数据块`, 'success');
-      renderSchemas(schemas);
-      
+
+      pageData = results[0].result;
+      dataLoaded = true;
+
+      renderContentTab(pageData);
+      renderIndexabilityTab(pageData);
+      renderSchemaTab(pageData.schemas);
+
+      showStatus('数据已加载', 'success');
+      updateActionButton();
+
     } catch (error) {
       console.error('Error:', error);
       showStatus(`提取失败: ${error.message}`, 'error');
     }
   }
-  
-  // 提取页面中的 Schema 数据（在页面上下文中执行）
-  function extractSchemas() {
+
+  // ──── Page-level extraction function ────
+  function extractAllSeoData() {
+    // --- Content ---
+    const title = document.title || '';
+
+    let description = '';
+    const metaDesc = document.querySelector('meta[name="description"]');
+    if (metaDesc) description = metaDesc.getAttribute('content') || '';
+
+    const h1s = [];
+    document.querySelectorAll('h1').forEach(h1 => {
+      const text = h1.textContent.trim();
+      if (text) h1s.push(text);
+    });
+
+    // --- Indexability: Raw HTML (from original server response) ---
+    // We fetch the page source and parse the original <link> / <meta> tags
+    // This avoids JS-mutated values
+    let canonicalRaw = '';
+    let robotsRaw = '';
+    const hreflangsRaw = [];
+
+    // Synchronous-ish: use a synchronous XMLHttpRequest (same-origin only)
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', location.href, false); // synchronous
+      xhr.overrideMimeType('text/html');
+      xhr.send();
+      if (xhr.status === 200) {
+        const raw = xhr.responseText;
+        // Parse canonical from raw HTML
+        const canonMatch = raw.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["'][^>]*\/?>/i);
+        if (canonMatch) canonicalRaw = canonMatch[1];
+        // Fallback: href before rel
+        if (!canonMatch) {
+          const canonMatch2 = raw.match(/<link[^>]*href=["']([^"']+)["'][^>]*rel=["']canonical["'][^>]*\/?>/i);
+          if (canonMatch2) canonicalRaw = canonMatch2[1];
+        }
+        // Parse robots from raw HTML
+        const robotsMatch = raw.match(/<meta[^>]*name=["']robots["'][^>]*content=["']([^"']*)["'][^>]*\/?>/i);
+        if (robotsMatch) robotsRaw = robotsMatch[1];
+        // Parse hreflangs from raw HTML
+        const hreflangRegex = /<link[^>]*rel=["']alternate["'][^>]*hreflang=["']([^"']+)["'][^>]*href=["']([^"']+)["'][^>]*\/?>/gi;
+        let m;
+        while ((m = hreflangRegex.exec(raw)) !== null) {
+          hreflangsRaw.push({ hreflang: m[1], href: m[2] });
+        }
+      }
+    } catch (e) {
+      // Fallback: use current DOM if fetch fails
+      console.warn('Raw HTML fetch failed, fallback to current DOM', e);
+    }
+
+    // Fallback: if fetch failed (e.g. CORS), fall back to current DOM
+    if (!canonicalRaw) {
+      const link = document.querySelector('link[rel="canonical"]');
+      if (link) canonicalRaw = link.getAttribute('href') || '';
+    }
+    if (!robotsRaw) {
+      const meta = document.querySelector('meta[name="robots"]');
+      if (meta) robotsRaw = meta.getAttribute('content') || '';
+    }
+
+    // --- Indexability: Rendered HTML (after JS mutations) ---
+    const canonicalRendered = (() => {
+      const link = document.querySelector('link[rel="canonical"]');
+      return link ? (link.getAttribute('href') || '') : '';
+    })();
+
+    // --- Hreflangs: from current DOM (rendered) ---
+    const hreflangsRendered = [];
+    document.querySelectorAll('link[rel="alternate"][hreflang]').forEach(link => {
+      const hreflang = link.getAttribute('hreflang');
+      const href = link.getAttribute('href');
+      if (hreflang && href) {
+        hreflangsRendered.push({ hreflang, href });
+      }
+    });
+
+    // Merge: deduplicate by (hreflang, href), prefer raw first then add rendered
+    const seen = new Set();
+    const hreflangs = [];
+    [...hreflangsRaw, ...hreflangsRendered].forEach(h => {
+      const key = `${h.hreflang}|${h.href}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      hreflangs.push(h);
+    });
+
+    // --- Schema Data ---
     const schemas = [];
-    
-    // 1. JSON-LD 格式（最常见）
-    const jsonLdScripts = document.querySelectorAll('script[type="application/ld+json"]');
-    jsonLdScripts.forEach((script, index) => {
+
+    // 1. JSON-LD
+    document.querySelectorAll('script[type="application/ld+json"]').forEach(script => {
       try {
         const data = JSON.parse(script.textContent);
         const items = Array.isArray(data) ? data : [data];
@@ -82,84 +173,156 @@ document.addEventListener('DOMContentLoaded', () => {
             data: item
           });
         });
-      } catch (e) {
-        console.warn('Failed to parse JSON-LD:', e);
-      }
+      } catch (e) { /* skip */ }
     });
-    
-    // 2. Microdata 格式
-    const microdataItems = document.querySelectorAll('[itemscope]');
-    microdataItems.forEach((item, index) => {
+
+    // 2. Microdata
+    document.querySelectorAll('[itemscope]').forEach(item => {
       const type = item.getAttribute('itemtype')?.split('/').pop() || 'Unknown';
       const props = {};
-      
       item.querySelectorAll('[itemprop]').forEach(prop => {
         const propName = prop.getAttribute('itemprop');
-        const value = prop.getAttribute('content') || 
-                      prop.getAttribute('href') || 
+        const value = prop.getAttribute('content') ||
+                      prop.getAttribute('href') ||
                       prop.textContent?.trim();
-        if (propName && value) {
-          props[propName] = value;
-        }
+        if (propName && value) props[propName] = value;
       });
-      
       if (Object.keys(props).length > 0) {
-        schemas.push({
-          type: type,
-          format: 'Microdata',
-          data: {
-            '@type': type,
-            ...props
-          }
-        });
+        schemas.push({ type, format: 'Microdata', data: { '@type': type, ...props } });
       }
     });
-    
-    // 3. RDFa 格式
-    const rdfaTypes = document.querySelectorAll('[typeof]');
-    rdfaTypes.forEach((item, index) => {
+
+    // 3. RDFa
+    document.querySelectorAll('[typeof]').forEach(item => {
       const type = item.getAttribute('typeof')?.split('/').pop() || 'Unknown';
       const props = {};
-      
       item.querySelectorAll('[property]').forEach(prop => {
         const propName = prop.getAttribute('property');
         const value = prop.getAttribute('content') || prop.textContent?.trim();
-        if (propName && value) {
-          props[propName] = value;
-        }
+        if (propName && value) props[propName] = value;
       });
-      
       if (Object.keys(props).length > 0) {
-        schemas.push({
-          type: type,
-          format: 'RDFa',
-          data: {
-            '@type': type,
-            ...props
-          }
-        });
+        schemas.push({ type, format: 'RDFa', data: { '@type': type, ...props } });
       }
     });
-    
-    return schemas;
+
+    // --- Return all ---
+    return {
+      title,
+      description,
+      h1s,
+      canonicalRaw,
+      canonicalRendered,
+      robots: robotsRaw,
+      hreflangs,
+      schemas
+    };
   }
-  
-  // 渲染 Schema 列表
-  function renderSchemas(schemas) {
+
+  // ──── Render Content Tab ────
+  function renderContentTab(data) {
+    contentFieldsEl.innerHTML = '';
+
+    const fields = [
+      { label: 'Title', value: data.title, icon: '📌' },
+      { label: 'Description', value: data.description, icon: '📝' },
+      { label: 'H1', value: data.h1s.length > 0 ? data.h1s.join(' / ') : '', icon: '🔤' }
+    ];
+
+    fields.forEach(f => {
+      const group = document.createElement('div');
+      group.className = 'field-group';
+      group.innerHTML = `
+        <div class="field-group-title"><span class="icon">${f.icon}</span>${f.label}</div>
+        <div class="field-row">
+          <div class="field-value ${f.value ? '' : 'empty'}">${escHtml(f.value) || '（空）'}</div>
+        </div>
+      `;
+      contentFieldsEl.appendChild(group);
+    });
+  }
+
+  // ──── Render Indexability Tab ────
+  function renderIndexabilityTab(data) {
+    indexabilityFieldsEl.innerHTML = '';
+
+    // --- Canonical URL ---
+    const canonicalGroup = document.createElement('div');
+    canonicalGroup.className = 'field-group';
+    canonicalGroup.innerHTML = `
+      <div class="field-group-title"><span class="icon">🔗</span>Canonical URL</div>
+      <div class="field-row">
+        <div class="field-label"><span class="tag tag-raw">Raw HTML</span></div>
+        <div class="field-value ${data.canonicalRaw ? '' : 'empty'}">${escHtml(data.canonicalRaw) || '（未设置）'}</div>
+      </div>
+      <div class="field-row">
+        <div class="field-label"><span class="tag tag-rendered">Rendered</span></div>
+        <div class="field-value ${data.canonicalRendered ? '' : 'empty'}">${escHtml(data.canonicalRendered) || '（未设置）'}</div>
+      </div>
+    `;
+    indexabilityFieldsEl.appendChild(canonicalGroup);
+
+    // --- Robots Meta ---
+    const robotsGroup = document.createElement('div');
+    robotsGroup.className = 'field-group';
+    robotsGroup.innerHTML = `
+      <div class="field-group-title"><span class="icon">🤖</span>Robots Meta Tag</div>
+      <div class="field-row">
+        <div class="field-value ${data.robots ? '' : 'empty'}">${escHtml(data.robots) || '（未设置）'}</div>
+      </div>
+    `;
+    indexabilityFieldsEl.appendChild(robotsGroup);
+
+    // --- Hreflangs ---
+    const hflangGroup = document.createElement('div');
+    hflangGroup.className = 'field-group';
+    let hflangHtml = `<div class="field-group-title"><span class="icon">🌐</span>Hreflangs (${data.hreflangs.length})</div>`;
+
+    if (data.hreflangs.length > 0) {
+      hflangHtml += '<div class="hreflang-list">';
+      data.hreflangs.forEach(h => {
+        const label = h.hreflang === 'x-default' ? 'x-default' : h.hreflang;
+        hflangHtml += `<div class="hreflang-row">
+          <span class="hreflang-code">${escHtml(label)}</span>
+          <span class="hreflang-url">${escHtml(h.href)}</span>
+        </div>`;
+      });
+      hflangHtml += '</div>';
+    } else {
+      hflangHtml += '<div class="hreflang-empty">（未设置 Hreflang）</div>';
+    }
+
+    hflangGroup.innerHTML = hflangHtml;
+    indexabilityFieldsEl.appendChild(hflangGroup);
+  }
+
+  // ──── Render Schema Tab (from existing code) ────
+  function renderSchemaTab(schemas) {
     schemaListEl.innerHTML = '';
-    
+
+    if (!schemas || schemas.length === 0) {
+      schemaListEl.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">📭</div>
+          <p>未发现结构化数据</p>
+          <p class="hint">当前页面可能没有 Schema.org 标记</p>
+        </div>
+      `;
+      return;
+    }
+
     schemas.forEach((schema, index) => {
       const item = document.createElement('div');
       item.className = 'schema-item';
       item.dataset.index = index;
-      
+
       const typeIcon = getTypeIcon(schema.type);
-      
+
       item.innerHTML = `
         <div class="schema-header">
           <div class="schema-type">
             <span class="icon">${typeIcon}</span>
-            <span class="type-name">${schema.type}</span>
+            <span class="type-name">${escHtml(schema.type)}</span>
             <span style="font-size: 11px; opacity: 0.7; margin-left: 4px;">${schema.format}</span>
           </div>
           <span class="toggle-icon">▼</span>
@@ -171,121 +334,139 @@ document.addEventListener('DOMContentLoaded', () => {
           <button class="btn-small btn-small-copy" data-action="copy">📋 复制</button>
         </div>
       `;
-      
-      // 折叠/展开
+
       const header = item.querySelector('.schema-header');
       header.addEventListener('click', () => {
         item.classList.toggle('collapsed');
       });
-      
-      // 复制单个
+
       const copyBtn = item.querySelector('[data-action="copy"]');
       copyBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         copyToClipboard(JSON.stringify(schema.data, null, 2));
         copyBtn.textContent = '✅ 已复制';
-        setTimeout(() => {
-          copyBtn.textContent = '📋 复制';
-        }, 1500);
+        setTimeout(() => { copyBtn.textContent = '📋 复制'; }, 1500);
       });
-      
+
       schemaListEl.appendChild(item);
     });
   }
-  
-  // 格式化 JSON 并添加语法高亮
+
+  // ──── Format JSON with syntax highlighting ────
   function formatJson(obj, indent = 0) {
     const spaces = '  '.repeat(indent);
     const nextSpaces = '  '.repeat(indent + 1);
-    
-    if (obj === null) {
-      return '<span class="null">null</span>';
-    }
-    
-    if (typeof obj === 'boolean') {
-      return `<span class="boolean">${obj}</span>`;
-    }
-    
-    if (typeof obj === 'number') {
-      return `<span class="number">${obj}</span>`;
-    }
-    
+
+    if (obj === null) return '<span class="null">null</span>';
+    if (typeof obj === 'boolean') return `<span class="boolean">${obj}</span>`;
+    if (typeof obj === 'number') return `<span class="number">${obj}</span>`;
     if (typeof obj === 'string') {
-      const escaped = obj.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      return `<span class="string">"${escaped}"</span>`;
+      const s = escHtml(obj);
+      return `<span class="string">"${s}"</span>`;
     }
-    
     if (Array.isArray(obj)) {
       if (obj.length === 0) return '[]';
       const items = obj.map(item => nextSpaces + formatJson(item, indent + 1)).join(',\n');
       return `[\n${items}\n${spaces}]`;
     }
-    
     if (typeof obj === 'object') {
       const keys = Object.keys(obj);
       if (keys.length === 0) return '{}';
       const items = keys.map(key => {
-        const escapedKey = key.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `${nextSpaces}<span class="key">"${escapedKey}"</span>: ${formatJson(obj[key], indent + 1)}`;
+        const k = escHtml(key);
+        return `${nextSpaces}<span class="key">"${k}"</span>: ${formatJson(obj[key], indent + 1)}`;
       }).join(',\n');
       return `{\n${items}\n${spaces}}`;
     }
-    
-    return String(obj);
+    return escHtml(String(obj));
   }
-  
-  // 获取类型图标
+
+  // ──── Utility: HTML escape ────
+  function escHtml(str) {
+    if (typeof str !== 'string') return String(str || '');
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ──── Schema type icon ────
   function getTypeIcon(type) {
     const icons = {
-      'Article': '📄',
-      'NewsArticle': '📰',
-      'BlogPosting': '📝',
-      'Product': '🛍️',
-      'Offer': '💰',
-      'Person': '👤',
-      'Organization': '🏢',
-      'LocalBusiness': '🏪',
-      'Restaurant': '🍽️',
-      'Event': '📅',
-      'Movie': '🎬',
-      'Book': '📚',
-      'Recipe': '🍳',
-      'Review': '⭐',
-      'FAQPage': '❓',
-      'HowTo': '📋',
-      'BreadcrumbList': '🧭',
-      'WebPage': '🌐',
-      'WebSite': '🔗',
-      'VideoObject': '🎥',
-      'ImageObject': '🖼️',
-      'AudioObject': '🎵'
+      'Article': '📄', 'NewsArticle': '📰', 'BlogPosting': '📝',
+      'Product': '🛍️', 'Offer': '💰', 'Person': '👤', 'Organization': '🏢',
+      'LocalBusiness': '🏪', 'Restaurant': '🍽️', 'Event': '📅',
+      'Movie': '🎬', 'Book': '📚', 'Recipe': '🍳', 'Review': '⭐',
+      'FAQPage': '❓', 'HowTo': '📋', 'BreadcrumbList': '🧭',
+      'WebPage': '🌐', 'WebSite': '🔗', 'VideoObject': '🎥',
+      'ImageObject': '🖼️', 'AudioObject': '🎵'
     };
     return icons[type] || '📦';
   }
-  
-  // 显示状态
-  function showStatus(message, type = 'loading') {
+
+  // ──── Action button (copies current tab data) ────
+  function updateActionButton() {
+    if (!dataLoaded || !pageData) {
+      actionBtn.classList.add('hidden');
+      return;
+    }
+
+    actionBtn.classList.remove('hidden');
+
+    if (currentTab === 'content') {
+      actionBtn.textContent = '📋 复制 Content';
+    } else if (currentTab === 'indexability') {
+      actionBtn.textContent = '📋 复制 Indexability';
+    } else {
+      const count = (pageData.schemas || []).length;
+      if (count === 0) {
+        actionBtn.textContent = '📋 复制全部';
+      } else {
+        actionBtn.textContent = `📋 复制 ${count} 个 Schema`;
+      }
+    }
+  }
+
+  function handleActionClick() {
+    if (!dataLoaded || !pageData) return;
+
+    let text = '';
+
+    if (currentTab === 'content') {
+      text = `Title: ${pageData.title}\nDescription: ${pageData.description}\nH1: ${pageData.h1s.join(' / ')}`;
+    } else if (currentTab === 'indexability') {
+      text = `Canonical URL (Raw HTML): ${pageData.canonicalRaw || '(not set)'}\n`;
+      text += `Canonical URL (Rendered): ${pageData.canonicalRendered || '(not set)'}\n`;
+      text += `Robots Meta: ${pageData.robots || '(not set)'}\n\n`;
+      if (pageData.hreflangs.length > 0) {
+        text += 'Hreflangs:\n';
+        pageData.hreflangs.forEach(h => {
+          text += `  ${h.hreflang} → ${h.href}\n`;
+        });
+      } else {
+        text += 'Hreflangs: (none)\n';
+      }
+    } else {
+      // Schema tab — copy all as JSON
+      const allData = pageData.schemas.map(s => s.data);
+      text = JSON.stringify(allData, null, 2);
+    }
+
+    copyToClipboard(text);
+
+    const original = actionBtn.textContent;
+    actionBtn.textContent = '✅ 已复制';
+    setTimeout(() => { actionBtn.textContent = original; }, 1500);
+  }
+
+  // ──── Status ────
+  function showStatus(message, type) {
     statusEl.textContent = message;
-    statusEl.className = `status ${type}`;
+    statusEl.className = `status ${type || ''}`;
   }
-  
-  // 显示空状态
-  function showEmptyState() {
-    schemaListEl.innerHTML = `
-      <div class="empty-state">
-        <div class="icon">📭</div>
-        <p>未发现结构化数据</p>
-        <p class="hint">当前页面可能没有 Schema.org 标记</p>
-      </div>
-    `;
-  }
-  
-  // 复制到剪贴板
+
+  // ──── Clipboard ────
   async function copyToClipboard(text) {
     try {
       await navigator.clipboard.writeText(text);
     } catch (error) {
-      // Fallback for older browsers
       const textarea = document.createElement('textarea');
       textarea.value = text;
       textarea.style.position = 'fixed';

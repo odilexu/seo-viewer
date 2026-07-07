@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
-  "name": "Schema Markup Viewer",
+  "name": "SEO Inspector",
   "version": "1.0.0",
-  "description": "查看当前页面的结构化数据（Schema.org markup），JSON 格式化展示",
+  "description": "页面 SEO 检查工具：Content / Indexability / Schema Markup 三合一",
   "permissions": ["activeTab", "scripting"],
   "host_permissions": ["<all_urls>"],
   "action": {
     "default_popup": "popup.html",
+    "default_title": "SEO Inspector",
     "default_icon": {
       "16": "icon16.png",
       "32": "icon32.png",
