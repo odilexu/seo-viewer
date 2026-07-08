@@ -280,7 +280,7 @@ document.addEventListener('DOMContentLoaded', () => {
         : '<span class="no-data">—</span>';
       const row = document.createElement('div');
       row.className = 'field-row';
-      row.innerHTML = `<span class="field-label heading-label">${level.toUpperCase()}</span><span class="field-value">${items}</span>`;
+      row.innerHTML = `<span class="field-label heading-label">${level.toUpperCase()}</span><span class="field-value heading-value">${items}</span>`;
       headingGroup.appendChild(row);
     });
     contentFieldsEl.appendChild(headingGroup);
