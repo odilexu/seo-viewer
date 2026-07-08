@@ -589,3 +589,25 @@ footer:empty {
   font-size: 12px;
   opacity: 0.6;
 }
+
+/* ─── Heading Items ─── */
+.heading-label {
+  color: #a3866a;
+  font-weight: 600;
+  min-width: 28px;
+}
+.heading-item {
+  display: inline-block;
+  margin: 2px 4px 2px 0;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.heading-h1 { background: rgba(190,142,62,0.2); color: #e8d5b0; }
+.heading-h2 { background: rgba(190,142,62,0.15); color: #d4c4aa; }
+.heading-h3 { background: rgba(190,142,62,0.1); color: #c4b49a; }
+.heading-h4 { background: rgba(190,142,62,0.07); color: #b4a48a; }
+.heading-h5 { background: rgba(190,142,62,0.05); color: #a4947a; }
+.heading-h6 { background: rgba(190,142,62,0.03); color: #94846a; }
+.no-data { color: #6b5f53; font-style: italic; }

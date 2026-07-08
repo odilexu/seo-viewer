@@ -107,10 +107,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const metaDesc = document.querySelector('meta[name="description"]');
     if (metaDesc) description = metaDesc.getAttribute('content') || '';
 
-    const h1s = [];
-    document.querySelectorAll('h1').forEach(h1 => {
-      const text = h1.textContent.trim();
-      if (text) h1s.push(text);
+    const headings = { h1: [], h2: [], h3: [], h4: [], h5: [], h6: [] };
+    document.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(el => {
+      const text = el.textContent.trim();
+      if (text) headings[el.tagName.toLowerCase()].push(text);
     });
 
     // --- Indexability: Raw HTML (from original server response) ---
@@ -239,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return {
       title,
       description,
-      h1s,
+      headings,
       canonicalRaw,
       canonicalRendered,
       robots: robotsRaw,
@@ -255,7 +255,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const fields = [
       { label: 'Title', value: data.title, icon: '📌' },
       { label: 'Description', value: data.description, icon: '📝' },
-      { label: 'H1', value: data.h1s.length > 0 ? data.h1s.join(' / ') : '', icon: '🔤' }
     ];
 
     fields.forEach(f => {
@@ -269,6 +268,22 @@ document.addEventListener('DOMContentLoaded', () => {
       `;
       contentFieldsEl.appendChild(group);
     });
+
+    // Append all heading levels (H1-H6)
+    const headingGroup = document.createElement('div');
+    headingGroup.className = 'field-group';
+    headingGroup.innerHTML = '<div class="field-group-title">🔤 Headings</div>';
+    ['h1','h2','h3','h4','h5','h6'].forEach(level => {
+      const list = data.headings[level];
+      const items = list.length > 0
+        ? list.map(t => `<span class="heading-item heading-${level}">${escHtml(t)}</span>`).join('')
+        : '<span class="no-data">—</span>';
+      const row = document.createElement('div');
+      row.className = 'field-row';
+      row.innerHTML = `<span class="field-label heading-label">${level.toUpperCase()}</span><span class="field-value">${items}</span>`;
+      headingGroup.appendChild(row);
+    });
+    contentFieldsEl.appendChild(headingGroup);
   }
 
   // ──── Render Indexability Tab ────
@@ -459,7 +474,11 @@ document.addEventListener('DOMContentLoaded', () => {
     let text = '';
 
     if (currentTab === 'content') {
-      text = `Title: ${pageData.title}\nDescription: ${pageData.description}\nH1: ${pageData.h1s.join(' / ')}`;
+      text = `Title: ${pageData.title}\nDescription: ${pageData.description}\n` +
+        ['h1','h2','h3','h4','h5','h6'].map(l => {
+          const list = pageData.headings[l];
+          return `${l.toUpperCase()}: ${list.length > 0 ? list.join(' / ') : '—'}`;
+        }).join('\n');
     } else if (currentTab === 'indexability') {
       text = `Canonical URL (Raw HTML): ${pageData.canonicalRaw || '(not set)'}\n`;
       text += `Canonical URL (Rendered): ${pageData.canonicalRendered || '(not set)'}\n`;
