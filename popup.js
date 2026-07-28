@@ -195,13 +195,23 @@ document.addEventListener('DOMContentLoaded', () => {
       try {
         const data = JSON.parse(script.textContent);
         const items = Array.isArray(data) ? data : [data];
-        items.forEach(item => {
-          schemas.push({
-            type: item['@type'] || 'Unknown',
-            format: 'JSON-LD',
-            data: item
-          });
-        });
+        const extractTypes = (obj, depth = 0) => {
+          if (depth > 5) return; // safety
+          if (obj['@graph']) {
+            if (Array.isArray(obj['@graph'])) {
+              obj['@graph'].forEach(child => extractTypes(child, depth + 1));
+            } else {
+              extractTypes(obj['@graph'], depth + 1);
+            }
+          } else if (obj['@type']) {
+            schemas.push({
+              type: obj['@type'],
+              format: 'JSON-LD',
+              data: obj
+            });
+          }
+        };
+        items.forEach(item => extractTypes(item));
       } catch (e) { /* skip */ }
     });
 
