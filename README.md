@@ -2,13 +2,28 @@
 
 > 原名 Schema Markup Viewer — 页面 SEO 诊断 Chrome 扩展
 
-一键查看当前页面的三大 SEO 要素：
+一键查看当前页面的 SEO 要素：
 
 ## 功能
 
-1. **Content** — Title、Description、H1 概览
+1. **Content** — Title、Description、H1 概览，以及全部 Heading 层级（H1–H6）
 2. **Indexability** — Canonical URL（Raw HTML / Rendered 对比）、Robots Meta Tag、Hreflangs
-3. **Schema Markup** — JSON-LD / Microdata / RDFa 结构化数据查看、折叠、复制
+3. **Schema Markup** — JSON-LD / Microdata / RDFa 结构化数据查看、折叠、复制（支持 `@graph` 嵌套实体递归展开）
+4. **Links** — 批量检测页面所有 `<a href>` 跳转链接的 HTTP 状态码（2xx / 3xx / 4xx / 5xx / 网络错误），展示完整跳转链与最终 URL，支持按状态筛选与一键复制
+
+### Links 检测说明
+
+- 点击 **🔗 Links** 标签页时才触发检测（懒加载，打开插件本身零网络开销）；结果缓存在内存，切标签不重复请求，点「🔄 刷新」重新检测。
+- 请求策略：`HEAD` 优先，遇 403/405/501/400 降级 `GET`；单请求 8s 超时；并发池约 6；跟随重定向。
+- 用 `webRequest` 抓完整跳转链（如 301 → 302 → 200），因 `fetch redirect:'manual'` 只能拿到 opaque 响应，读不到 3xx 具体码。
+- 检测在 background service worker 中执行：popup 失焦即关闭，会中断批量请求，且扩展上下文 + `host_permissions` 可绕过 CORS。**检测期间建议用右上角 ⛶ 打开独立窗口**。
+
+#### 已知局限
+
+- 扩展身份发起的请求可能被站点风控（Cloudflare 等）返回 403/405，造成误报；
+- 纯 JS 跳转（无 `href`、仅 `onclick`）的链接无法检测；
+- 登录态页面以匿名身份请求（`credentials: omit`），结果可能与本人浏览不同；
+- 页面链接较多时检测耗时较长（界面有进度提示）。
 
 ## 安装
 
@@ -41,10 +56,11 @@ chrome://extensions/
 ## 文件结构
 
 ```
-seo-inspector/
-├── manifest.json      # Chrome 扩展清单
+seo-viewer/
+├── manifest.json      # Chrome 扩展清单（MV3）
 ├── popup.html         # 交互界面
-├── popup.js           # 核心逻辑
+├── popup.js           # 弹窗核心逻辑（提取 + 渲染）
+├── background.js      # Service Worker（链接状态码批量检测）
 ├── styles.css         # DeepLumen 暖金风格样式
 ├── design-icons.js    # 图标像素生成脚本
 ├── icon16.png … 256px # 6 尺寸扩展图标
