@@ -513,11 +513,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
     renderLinkProgress();
 
+    let readyTimer = setTimeout(() => {
+      if (!linkRunning) return;
+      linkRunning = false;
+      linksListEl.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>后台服务无响应</p><p class="hint">请到 chrome://extensions 重新加载扩展后再试</p></div>`;
+      try { port.disconnect(); } catch (e) {}
+    }, 5000);
+
     port.onMessage.addListener((msg) => {
-      if (msg.type === 'progress') {
+      if (msg.type === 'ready') {
+        clearTimeout(readyTimer);
+        port.postMessage({ type: 'start', urls });
+      } else if (msg.type === 'progress') {
         linkProgress = { done: msg.done, total: msg.total };
         renderLinkProgress();
       } else if (msg.type === 'done') {
+        clearTimeout(readyTimer);
         linkRunning = false;
         linkResults = (msg.results || []).map(r => ({
           ...r,
@@ -526,13 +537,22 @@ document.addEventListener('DOMContentLoaded', () => {
         renderLinkResults();
         try { port.disconnect(); } catch (e) {}
       } else if (msg.type === 'error') {
+        clearTimeout(readyTimer);
         linkRunning = false;
         linksListEl.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>检测失败</p><p class="hint">${escHtml(msg.error || '')}</p></div>`;
         try { port.disconnect(); } catch (e) {}
       }
     });
 
-    port.postMessage({ type: 'start', urls });
+    port.onDisconnect.addListener(() => {
+      clearTimeout(readyTimer);
+      // If the worker died before delivering results, surface it instead of
+      // leaving the UI stuck at 0.
+      if (linkRunning) {
+        linkRunning = false;
+        linksListEl.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>后台服务已断开</p><p class="hint">请重新加载扩展后重试</p></div>`;
+      }
+    });
   }
 
   // category: 'ok' | 'redirect' | 'error'

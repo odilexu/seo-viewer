@@ -140,13 +140,26 @@ async function runPool(items, worker, concurrency, onDone) {
 // ──── Long-lived port handler (progress + results) ────
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'link-check') return;
+  console.log('[SEO Inspector] link-check port connected');
 
   let aborted = false;
-  port.onDisconnect.addListener(() => { aborted = true; });
+  let started = false;
+
+  port.onDisconnect.addListener(() => {
+    aborted = true;
+    console.log('[SEO Inspector] link-check port disconnected');
+  });
+
+  // Handshake: the popup waits for this `ready` before sending work, so a
+  // cold-started service worker never drops the initial `start` message.
+  try { port.postMessage({ type: 'ready' }); } catch (e) { /* popup gone */ }
 
   port.onMessage.addListener(async (msg) => {
-    if (!msg || msg.type !== 'start') return;
+    if (!msg || msg.type !== 'start' || started) return;
+    started = true;
+
     const urls = Array.isArray(msg.urls) ? msg.urls : [];
+    console.log('[SEO Inspector] link-check received', urls.length, 'urls');
 
     try {
       const results = await runPool(urls, checkOne, 6, (done, total) => {
@@ -158,6 +171,7 @@ chrome.runtime.onConnect.addListener((port) => {
         try { port.postMessage({ type: 'done', results }); } catch (e) { /* popup closed */ }
       }
     } catch (e) {
+      console.error('[SEO Inspector] link-check error', e);
       if (!aborted) {
         try { port.postMessage({ type: 'error', error: (e && e.message) || 'Unknown error' }); } catch (e2) {}
       }
