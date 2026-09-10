@@ -341,6 +341,14 @@ header h1 {
   overflow-y: auto;
 }
 
+/* Links list must scroll like the others; without this a long list
+   overflows .main-layout and overlaps the footer buttons. Account for
+   the toolbar above it so toolbar + list stays within .main-layout. */
+.links-list {
+  max-height: 435px;
+  overflow-y: auto;
+}
+
 .schema-item {
   background: var(--bg-card);
   border: 1px solid var(--border-default);
@@ -545,24 +553,28 @@ footer:empty {
 
 /* ──── Scrollbar ──── */
 .field-list::-webkit-scrollbar,
-.schema-list::-webkit-scrollbar {
+.schema-list::-webkit-scrollbar,
+.links-list::-webkit-scrollbar {
   width: 5px;
 }
 
 .field-list::-webkit-scrollbar-track,
-.schema-list::-webkit-scrollbar-track {
+.schema-list::-webkit-scrollbar-track,
+.links-list::-webkit-scrollbar-track {
   background: var(--scrollbar-track);
   border-radius: 3px;
 }
 
 .field-list::-webkit-scrollbar-thumb,
-.schema-list::-webkit-scrollbar-thumb {
+.schema-list::-webkit-scrollbar-thumb,
+.links-list::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 3px;
 }
 
 .field-list::-webkit-scrollbar-thumb:hover,
-.schema-list::-webkit-scrollbar-thumb:hover {
+.schema-list::-webkit-scrollbar-thumb:hover,
+.links-list::-webkit-scrollbar-thumb:hover {
   background: var(--primary);
 }
 
