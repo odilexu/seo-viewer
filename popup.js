@@ -11,18 +11,21 @@ document.addEventListener('DOMContentLoaded', () => {
   const indexabilityFieldsEl = document.getElementById('indexability-fields');
   const schemaListEl = document.getElementById('schema-list');
   const linksListEl = document.getElementById('links-list');
+  const linksStartEl = document.getElementById('links-start');
   const linksToolbarEl = document.getElementById('links-toolbar');
   const linksSummaryEl = document.getElementById('links-summary');
 
   // Tab state
   let currentTab = 'content';
-  let pageData = null; // { title, description, h1s, canonicalRaw, canonicalRendered, robots, hreflangs, schemas, links }
+  let pageData = null; // { url, title, description, h1s, canonicalRaw, canonicalRendered, robots, hreflangs, schemas, links }
   let dataLoaded = false;
 
   // Link-check state
   let linkResults = null;
   let linkRunning = false;
   let linkProgress = { done: 0, total: 0 };
+  let linkSnapshotStats = null;
+  let linkScanMode = 'standard';
   let linkFilter = 'all';
 
   // ──── Tab Switching ────
@@ -81,22 +84,18 @@ document.addEventListener('DOMContentLoaded', () => {
     contentFieldsEl.innerHTML = '';
     indexabilityFieldsEl.innerHTML = '';
     schemaListEl.innerHTML = '';
+    linksStartEl.innerHTML = '';
+    linksStartEl.style.display = 'none';
     linksListEl.innerHTML = '';
     linksToolbarEl.style.display = 'none';
     linkResults = null;
     linkRunning = false;
     linkProgress = { done: 0, total: 0 };
+    linkSnapshotStats = null;
+    linkScanMode = 'standard';
 
     try {
-      // Use ?tabId= from URL (pop-out window) or fallback to active tab
-      const params = new URLSearchParams(location.search);
-      let tab;
-      const targetTabId = parseInt(params.get('tabId'), 10);
-      if (targetTabId) {
-        tab = await chrome.tabs.get(targetTabId);
-      } else {
-        [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-      }
+      const tab = await getTargetTab();
       if (!tab) {
         showStatus('无法获取当前标签页', 'error');
         return;
@@ -128,6 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ──── Page-level extraction function ────
   function extractAllSeoData() {
     // --- Content ---
+    const url = location.href;
     const title = document.title || '';
 
     let description = '';
@@ -290,6 +290,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Return all ---
     return {
+      url,
       title,
       description,
       headings,
@@ -457,6 +458,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const links = pageData.links || [];
 
     if (links.length === 0) {
+      linksStartEl.style.display = 'none';
       linksToolbarEl.style.display = 'none';
       linksListEl.innerHTML = `
         <div class="empty-state">
@@ -470,25 +472,372 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Already have results → just re-render
     if (linkResults) {
+      linksStartEl.style.display = 'none';
       renderLinkResults();
       return;
     }
     if (linkRunning) {
+      linksStartEl.style.display = 'none';
       renderLinkProgress();
       return;
     }
 
-    // Kick off the check
-    startLinkCheck(links);
+    // Wait for an explicit user action before starting network requests.
+    linksToolbarEl.style.display = 'none';
+    linksStartEl.style.display = 'block';
+    const isJjsHouse = /^https?:\/\/(?:www\.)?jjshouse\.com\//i.test(pageData.url || '');
+    linksStartEl.innerHTML = `
+      <div class="links-start-card">
+        <div class="links-start-icon">🔗</div>
+        <div class="links-start-title">准备检测页面链接</div>
+        <div class="links-start-hint">当前快照有 ${links.length} 条可检测链接；点击后将重新读取页面最新链接，再检查状态码和跳转链。</div>
+        <div class="links-start-actions">
+          <button id="start-links" class="btn-start-links">▶ 常规检测</button>
+          <button id="start-links-deep" class="btn-start-links btn-start-links-deep">🔎 深度扫描</button>
+          ${isJjsHouse ? '<button id="start-links-jjs-nav" class="btn-start-links btn-start-links-jjs-nav">🧭 导航扫描</button>' : ''}
+        </div>
+        <div class="links-start-note">深度扫描不会自动滚动页面，会额外读取开放 Shadow DOM 和可访问 iframe。JJ's House 导航扫描会依次悬停顶级导航，但不会点击或跳转页面。</div>
+      </div>
+    `;
+    linksStartEl.querySelector('#start-links').addEventListener('click', () => {
+      linksStartEl.style.display = 'none';
+      refreshLinksAndStartCheck('standard');
+    });
+    linksStartEl.querySelector('#start-links-deep').addEventListener('click', () => {
+      linksStartEl.style.display = 'none';
+      refreshLinksAndStartCheck('deep');
+    });
+    const jjsNavButton = linksStartEl.querySelector('#start-links-jjs-nav');
+    if (jjsNavButton) {
+      jjsNavButton.addEventListener('click', () => {
+        linksStartEl.style.display = 'none';
+        refreshLinksAndStartCheck('jjs-navigation');
+      });
+    }
+  }
+
+  // Resolve the inspected page for both the normal popup and the pop-out window.
+  async function getTargetTab() {
+    const params = new URLSearchParams(location.search);
+    const targetTabId = parseInt(params.get('tabId'), 10);
+    if (targetTabId) return chrome.tabs.get(targetTabId);
+
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    return tab;
+  }
+
+  // SPA pages can append links after the popup first opens. Re-read the DOM
+  // immediately before issuing HTTP checks instead of using the old snapshot.
+  async function refreshLinksAndStartCheck(mode) {
+    const isDeepScan = mode === 'deep';
+    const isJjsNavigationScan = mode === 'jjs-navigation';
+    linkScanMode = isJjsNavigationScan ? 'jjs-navigation' : (isDeepScan ? 'deep' : 'standard');
+    linksToolbarEl.style.display = 'none';
+    linksListEl.innerHTML = `
+      <div class="links-progress">
+        <div class="links-progress-label">${isJjsNavigationScan ? '正在逐个展开 JJ\'s House 导航并收集链接…' : (isDeepScan ? '正在进行深度扫描，等待动态链接稳定…' : '正在获取当前页面最新链接…')}</div>
+        <div class="links-progress-bar"><div class="links-progress-fill" style="width:35%"></div></div>
+      </div>
+    `;
+
+    try {
+      const tab = await getTargetTab();
+      if (!tab) throw new Error('无法获取当前标签页');
+
+      const results = await chrome.scripting.executeScript({
+        target: isDeepScan ? { tabId: tab.id, allFrames: true } : { tabId: tab.id },
+        function: isJjsNavigationScan ? extractJjsNavigationLinks : (isDeepScan ? extractDeepPageLinks : extractPageLinks)
+      });
+      const snapshot = isDeepScan
+        ? mergeLinkSnapshots(results.map(entry => entry.result).filter(Boolean))
+        : (results[0].result || { links: [], stats: null });
+      const links = snapshot.links || [];
+      pageData.links = links;
+      linkSnapshotStats = snapshot.stats;
+
+      if (links.length === 0) {
+        renderLinksTab();
+        return;
+      }
+
+      startLinkCheck(links);
+    } catch (error) {
+      console.error('Link extraction error:', error);
+      linksListEl.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">⚠️</div>
+          <p>获取链接失败</p>
+          <p class="hint">${escHtml(error.message || '')}</p>
+        </div>
+      `;
+    }
+  }
+
+  function mergeLinkSnapshots(snapshots) {
+    const linksByUrl = new Map();
+    const stats = {
+      anchorCount: 0,
+      httpAnchorCount: 0,
+      uniqueUrlCount: 0,
+      frameCount: snapshots.length,
+      shadowRootCount: 0
+    };
+
+    snapshots.forEach(snapshot => {
+      const frameStats = snapshot.stats || {};
+      stats.anchorCount += frameStats.anchorCount || 0;
+      stats.httpAnchorCount += frameStats.httpAnchorCount || 0;
+      stats.shadowRootCount += frameStats.shadowRootCount || 0;
+      (snapshot.links || []).forEach(link => {
+        if (!linksByUrl.has(link.url)) linksByUrl.set(link.url, link);
+      });
+    });
+
+    const links = [...linksByUrl.values()];
+    stats.uniqueUrlCount = links.length;
+    return { links, stats };
+  }
+
+  // Runs in the inspected page. Wait until the link set stays unchanged for
+  // a short period, because SPA pages can append navigation/product links
+  // after the popup opens.
+  async function extractPageLinks() {
+    function collect() {
+      const links = [];
+      const seenHref = new Set();
+      let httpAnchorCount = 0;
+      const anchorCount = document.querySelectorAll('a[href]').length;
+
+      document.querySelectorAll('a[href]').forEach(a => {
+        const raw = a.getAttribute('href');
+        if (!raw) return;
+        if (/^(mailto:|tel:|javascript:|data:|sms:|#)/i.test(raw.trim())) return;
+
+        let abs;
+        try { abs = new URL(raw, location.href).href; } catch (e) { return; }
+        if (!/^https?:/i.test(abs)) return;
+
+        httpAnchorCount++;
+        if (seenHref.has(abs)) return;
+        seenHref.add(abs);
+        links.push({ url: abs, text: (a.textContent || '').trim().slice(0, 120) });
+      });
+
+      return {
+        links,
+        stats: { anchorCount, httpAnchorCount, uniqueUrlCount: links.length }
+      };
+    }
+
+    const startedAt = Date.now();
+    const maxWaitMs = 7000;
+    const stableForMs = 1200;
+    const pollMs = 250;
+    let snapshot = collect();
+    let signature = snapshot.links.map(link => link.url).join('\n');
+    let lastChangedAt = Date.now();
+
+    while (Date.now() - startedAt < maxWaitMs && Date.now() - lastChangedAt < stableForMs) {
+      await new Promise(resolve => setTimeout(resolve, pollMs));
+      const next = collect();
+      const nextSignature = next.links.map(link => link.url).join('\n');
+
+      snapshot = next;
+      if (nextSignature !== signature) {
+        signature = nextSignature;
+        lastChangedAt = Date.now();
+      }
+    }
+
+    return snapshot;
+  }
+
+  // Runs in every accessible frame for deep scans. It also walks open shadow
+  // roots, which document.querySelectorAll cannot enter by itself.
+  async function extractDeepPageLinks() {
+    function collect() {
+      const links = [];
+      const seenHref = new Set();
+      const visitedRoots = new Set();
+      let anchorCount = 0;
+      let httpAnchorCount = 0;
+      let shadowRootCount = 0;
+
+      function recordAnchor(a) {
+        anchorCount++;
+        const raw = a.getAttribute('href');
+        if (!raw || /^(mailto:|tel:|javascript:|data:|sms:|#)/i.test(raw.trim())) return;
+
+        let abs;
+        try { abs = new URL(raw, location.href).href; } catch (e) { return; }
+        if (!/^https?:/i.test(abs)) return;
+
+        httpAnchorCount++;
+        if (seenHref.has(abs)) return;
+        seenHref.add(abs);
+        links.push({ url: abs, text: (a.textContent || '').trim().slice(0, 120) });
+      }
+
+      function scanRoot(root) {
+        if (!root || visitedRoots.has(root)) return;
+        visitedRoots.add(root);
+        root.querySelectorAll('a[href]').forEach(recordAnchor);
+        root.querySelectorAll('*').forEach(element => {
+          if (element.shadowRoot) {
+            shadowRootCount++;
+            scanRoot(element.shadowRoot);
+          }
+        });
+      }
+
+      scanRoot(document);
+      return {
+        links,
+        stats: { anchorCount, httpAnchorCount, uniqueUrlCount: links.length, shadowRootCount }
+      };
+    }
+
+    const startedAt = Date.now();
+    const maxWaitMs = 7000;
+    const stableForMs = 1200;
+    const pollMs = 250;
+    let snapshot = collect();
+    let signature = snapshot.links.map(link => link.url).join('\n');
+    let lastChangedAt = Date.now();
+
+    while (Date.now() - startedAt < maxWaitMs && Date.now() - lastChangedAt < stableForMs) {
+      await new Promise(resolve => setTimeout(resolve, pollMs));
+      const next = collect();
+      const nextSignature = next.links.map(link => link.url).join('\n');
+
+      snapshot = next;
+      if (nextSignature !== signature) {
+        signature = nextSignature;
+        lastChangedAt = Date.now();
+      }
+    }
+
+    return snapshot;
+  }
+
+  // JJ's House product pages may create mega-menu links only when a top-level
+  // navigation item receives a hover. This collector never clicks a link; it
+  // hovers likely top-level triggers and accumulates the links exposed by each.
+  async function extractJjsNavigationLinks() {
+    function collectLinks() {
+      const links = [];
+      const seenHref = new Set();
+      let anchorCount = 0;
+      let httpAnchorCount = 0;
+
+      document.querySelectorAll('a[href]').forEach(a => {
+        anchorCount++;
+        const raw = a.getAttribute('href');
+        if (!raw || /^(mailto:|tel:|javascript:|data:|sms:|#)/i.test(raw.trim())) return;
+
+        let abs;
+        try { abs = new URL(raw, location.href).href; } catch (e) { return; }
+        if (!/^https?:/i.test(abs)) return;
+
+        httpAnchorCount++;
+        if (seenHref.has(abs)) return;
+        seenHref.add(abs);
+        links.push({ url: abs, text: (a.textContent || '').trim().slice(0, 120) });
+      });
+
+      return { links, stats: { anchorCount, httpAnchorCount, uniqueUrlCount: links.length } };
+    }
+
+    function isVisible(element) {
+      const style = getComputedStyle(element);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    }
+
+    function findNavigationTriggers() {
+      const selector = [
+        'header [aria-haspopup="true"]',
+        'header [role="menuitem"]',
+        'header [class*="nav-menu__item"]',
+        'header [class*="nav-menu-item"]',
+        'header [class*="navigation"] > a',
+        'header [class*="navigation"] > button',
+        '[class*="header"] [class*="nav-menu__item"]',
+        '[class*="header"] [class*="nav-menu-item"]'
+      ].join(',');
+
+      const seen = new Set();
+      return [...document.querySelectorAll(selector)]
+        .filter(element => {
+          if (seen.has(element) || !isVisible(element)) return false;
+          const className = typeof element.className === 'string' ? element.className : '';
+          if (/nav-sub-menu/i.test(className)) return false;
+          const text = (element.textContent || '').trim();
+          if (!text || text.length > 80) return false;
+          seen.add(element);
+          return true;
+        })
+        .slice(0, 30);
+    }
+
+    function hover(element) {
+      const options = { bubbles: true, cancelable: true, view: window };
+      const PointerEventCtor = window.PointerEvent || MouseEvent;
+      ['pointerover', 'pointerenter'].forEach(type => {
+        element.dispatchEvent(new PointerEventCtor(type, options));
+      });
+      ['mouseover', 'mouseenter'].forEach(type => {
+        element.dispatchEvent(new MouseEvent(type, options));
+      });
+    }
+
+    const linksByUrl = new Map();
+    const initial = collectLinks();
+    initial.links.forEach(link => linksByUrl.set(link.url, link));
+    let maxAnchorCount = initial.stats.anchorCount;
+    let maxHttpAnchorCount = initial.stats.httpAnchorCount;
+
+    const triggers = findNavigationTriggers();
+    for (const trigger of triggers) {
+      hover(trigger);
+      await new Promise(resolve => setTimeout(resolve, 350));
+      const snapshot = collectLinks();
+      maxAnchorCount = Math.max(maxAnchorCount, snapshot.stats.anchorCount);
+      maxHttpAnchorCount = Math.max(maxHttpAnchorCount, snapshot.stats.httpAnchorCount);
+      snapshot.links.forEach(link => {
+        if (!linksByUrl.has(link.url)) linksByUrl.set(link.url, link);
+      });
+    }
+
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const finalSnapshot = collectLinks();
+    maxAnchorCount = Math.max(maxAnchorCount, finalSnapshot.stats.anchorCount);
+    maxHttpAnchorCount = Math.max(maxHttpAnchorCount, finalSnapshot.stats.httpAnchorCount);
+    finalSnapshot.links.forEach(link => {
+      if (!linksByUrl.has(link.url)) linksByUrl.set(link.url, link);
+    });
+
+    const links = [...linksByUrl.values()];
+    return {
+      links,
+      stats: {
+        anchorCount: maxAnchorCount,
+        httpAnchorCount: maxHttpAnchorCount,
+        uniqueUrlCount: links.length,
+        navigationTriggerCount: triggers.length
+      }
+    };
   }
 
   function renderLinkProgress() {
     linksToolbarEl.style.display = 'none';
     const { done, total } = linkProgress;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    const snapshotText = linkSnapshotStats
+      ? `${linkScanMode === 'deep' ? `深度扫描已读取 ${linkSnapshotStats.frameCount} 个 frame、${linkSnapshotStats.shadowRootCount} 个开放 Shadow DOM；` : ''}${linkScanMode === 'jjs-navigation' ? `已依次悬停 ${linkSnapshotStats.navigationTriggerCount} 个顶级导航；` : ''}已读取 ${linkSnapshotStats.anchorCount} 个 &lt;a&gt;，${linkSnapshotStats.httpAnchorCount} 个 HTTP 链接，去重后检测 ${linkSnapshotStats.uniqueUrlCount} 个 URL。`
+      : '';
     linksListEl.innerHTML = `
       <div class="links-progress">
-        <div class="links-progress-label">正在检测链接状态码… ${done} / ${total}</div>
+        <div class="links-progress-label">${snapshotText}正在检测链接状态码… ${done} / ${total}</div>
         <div class="links-progress-bar"><div class="links-progress-fill" style="width:${pct}%"></div></div>
       </div>
     `;
