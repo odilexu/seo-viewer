@@ -619,7 +619,7 @@ document.addEventListener('DOMContentLoaded', () => {
   function shortenUrl(u) {
     try {
       const url = new URL(u);
-      let s = url.host + url.pathname + url.search;
+      let s = url.protocol + '//' + url.host + url.pathname + url.search;
       if (s.length > 90) s = s.slice(0, 88) + '…';
       return s;
     } catch (e) {
