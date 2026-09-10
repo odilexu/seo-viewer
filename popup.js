@@ -10,11 +10,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const contentFieldsEl = document.getElementById('content-fields');
   const indexabilityFieldsEl = document.getElementById('indexability-fields');
   const schemaListEl = document.getElementById('schema-list');
+  const linksListEl = document.getElementById('links-list');
+  const linksToolbarEl = document.getElementById('links-toolbar');
+  const linksSummaryEl = document.getElementById('links-summary');
 
   // Tab state
   let currentTab = 'content';
-  let pageData = null; // { title, description, h1s, canonicalRaw, canonicalRendered, robots, hreflangs, schemas }
+  let pageData = null; // { title, description, h1s, canonicalRaw, canonicalRendered, robots, hreflangs, schemas, links }
   let dataLoaded = false;
+
+  // Link-check state
+  let linkResults = null;
+  let linkRunning = false;
+  let linkProgress = { done: 0, total: 0 };
+  let linkFilter = 'all';
 
   // ──── Tab Switching ────
   document.querySelectorAll('.tabs-sidebar .tab').forEach(tab => {
@@ -25,6 +34,17 @@ document.addEventListener('DOMContentLoaded', () => {
       currentTab = tab.dataset.tab;
       document.getElementById(`tab-${currentTab}`).classList.add('active');
       updateActionButton();
+      if (currentTab === 'links') renderLinksTab();
+    });
+  });
+
+  // ──── Link filter buttons ────
+  document.querySelectorAll('.links-filters .filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.links-filters .filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      linkFilter = btn.dataset.filter;
+      if (linkResults) renderLinkResults();
     });
   });
 
@@ -61,6 +81,11 @@ document.addEventListener('DOMContentLoaded', () => {
     contentFieldsEl.innerHTML = '';
     indexabilityFieldsEl.innerHTML = '';
     schemaListEl.innerHTML = '';
+    linksListEl.innerHTML = '';
+    linksToolbarEl.style.display = 'none';
+    linkResults = null;
+    linkRunning = false;
+    linkProgress = { done: 0, total: 0 };
 
     try {
       // Use ?tabId= from URL (pop-out window) or fallback to active tab
@@ -91,6 +116,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
       showStatus('数据已加载', 'success');
       updateActionButton();
+
+      if (currentTab === 'links') renderLinksTab();
 
     } catch (error) {
       console.error('Error:', error);
@@ -245,6 +272,22 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
+    // --- Page Links (for HTTP status check) ---
+    const links = [];
+    const seenHref = new Set();
+    document.querySelectorAll('a[href]').forEach(a => {
+      const raw = a.getAttribute('href');
+      if (!raw) return;
+      // skip non-navigational schemes and pure anchors
+      if (/^(mailto:|tel:|javascript:|data:|sms:|#)/i.test(raw.trim())) return;
+      let abs;
+      try { abs = new URL(raw, location.href).href; } catch (e) { return; }
+      if (!/^https?:/i.test(abs)) return;
+      if (seenHref.has(abs)) return;
+      seenHref.add(abs);
+      links.push({ url: abs, text: (a.textContent || '').trim().slice(0, 120) });
+    });
+
     // --- Return all ---
     return {
       title,
@@ -254,7 +297,8 @@ document.addEventListener('DOMContentLoaded', () => {
       canonicalRendered,
       robots: robotsRaw,
       hreflangs,
-      schemas
+      schemas,
+      links
     };
   }
 
@@ -406,6 +450,183 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // ──── Render Links Tab ────
+  function renderLinksTab() {
+    if (!dataLoaded || !pageData) return;
+
+    const links = pageData.links || [];
+
+    if (links.length === 0) {
+      linksToolbarEl.style.display = 'none';
+      linksListEl.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🔗</div>
+          <p>未发现可检测的跳转链接</p>
+          <p class="hint">当前页面没有 http(s) 形式的 &lt;a&gt; 链接</p>
+        </div>
+      `;
+      return;
+    }
+
+    // Already have results → just re-render
+    if (linkResults) {
+      renderLinkResults();
+      return;
+    }
+    if (linkRunning) {
+      renderLinkProgress();
+      return;
+    }
+
+    // Kick off the check
+    startLinkCheck(links);
+  }
+
+  function renderLinkProgress() {
+    linksToolbarEl.style.display = 'none';
+    const { done, total } = linkProgress;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    linksListEl.innerHTML = `
+      <div class="links-progress">
+        <div class="links-progress-label">正在检测链接状态码… ${done} / ${total}</div>
+        <div class="links-progress-bar"><div class="links-progress-fill" style="width:${pct}%"></div></div>
+      </div>
+    `;
+  }
+
+  function startLinkCheck(links) {
+    const urls = links.map(l => l.url);
+    linkRunning = true;
+    linkProgress = { done: 0, total: urls.length };
+
+    // Preserve display text for each url
+    const textByUrl = new Map(links.map(l => [l.url, l.text]));
+
+    let port;
+    try {
+      port = chrome.runtime.connect({ name: 'link-check' });
+    } catch (e) {
+      linkRunning = false;
+      linksListEl.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>无法连接后台服务</p><p class="hint">${escHtml(e.message)}</p></div>`;
+      return;
+    }
+
+    renderLinkProgress();
+
+    let readyTimer = setTimeout(() => {
+      if (!linkRunning) return;
+      linkRunning = false;
+      linksListEl.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>后台服务无响应</p><p class="hint">请到 chrome://extensions 重新加载扩展后再试</p></div>`;
+      try { port.disconnect(); } catch (e) {}
+    }, 5000);
+
+    port.onMessage.addListener((msg) => {
+      if (msg.type === 'ready') {
+        clearTimeout(readyTimer);
+        port.postMessage({ type: 'start', urls });
+      } else if (msg.type === 'progress') {
+        linkProgress = { done: msg.done, total: msg.total };
+        renderLinkProgress();
+      } else if (msg.type === 'done') {
+        clearTimeout(readyTimer);
+        linkRunning = false;
+        linkResults = (msg.results || []).map(r => ({
+          ...r,
+          text: textByUrl.get(r.url) || ''
+        }));
+        renderLinkResults();
+        try { port.disconnect(); } catch (e) {}
+      } else if (msg.type === 'error') {
+        clearTimeout(readyTimer);
+        linkRunning = false;
+        linksListEl.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>检测失败</p><p class="hint">${escHtml(msg.error || '')}</p></div>`;
+        try { port.disconnect(); } catch (e) {}
+      }
+    });
+
+    port.onDisconnect.addListener(() => {
+      clearTimeout(readyTimer);
+      // If the worker died before delivering results, surface it instead of
+      // leaving the UI stuck at 0.
+      if (linkRunning) {
+        linkRunning = false;
+        linksListEl.innerHTML = `<div class="empty-state"><div class="icon">⚠️</div><p>后台服务已断开</p><p class="hint">请重新加载扩展后重试</p></div>`;
+      }
+    });
+  }
+
+  // category: 'ok' | 'redirect' | 'error'
+  function classifyResult(r) {
+    if (r.error) return 'error';
+    const s = r.finalStatus;
+    if (s == null) return 'error';
+    if (s >= 200 && s < 300) return (r.chain && r.chain.length > 0) ? 'redirect' : 'ok';
+    if (s >= 300 && s < 400) return 'redirect';
+    return 'error';
+  }
+
+  function renderLinkResults() {
+    if (!linkResults) return;
+
+    const all = linkResults;
+    const okCount = all.filter(r => classifyResult(r) === 'ok').length;
+    const redirCount = all.filter(r => classifyResult(r) === 'redirect').length;
+    const errCount = all.filter(r => classifyResult(r) === 'error').length;
+
+    // Toolbar
+    linksToolbarEl.style.display = 'flex';
+    linksSummaryEl.innerHTML =
+      `<span class="sum-total">共 ${all.length} 条</span>` +
+      `<span class="sum-ok">✅ ${okCount}</span>` +
+      `<span class="sum-redirect">↪️ ${redirCount}</span>` +
+      `<span class="sum-error">❌ ${errCount}</span>`;
+
+    // Filtered list
+    let list = all;
+    if (linkFilter === 'error') list = all.filter(r => classifyResult(r) === 'error');
+    else if (linkFilter === 'redirect') list = all.filter(r => classifyResult(r) === 'redirect');
+
+    if (list.length === 0) {
+      linksListEl.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><p>没有符合筛选条件的链接</p></div>`;
+      return;
+    }
+
+    let html = '<div class="link-items">';
+    list.forEach(r => {
+      const cat = classifyResult(r);
+      const badge = r.error ? 'ERR' : (r.finalStatus == null ? '???' : r.finalStatus);
+      const chainStr = (r.chain && r.chain.length > 0)
+        ? r.chain.map(h => `${h.status} → `).join('') + (r.finalStatus != null ? r.finalStatus : '')
+        : '';
+      const chainHtml = chainStr
+        ? `<div class="link-chain" title="跳转链">${escHtml(chainStr)}</div>`
+        : (r.error ? `<div class="link-chain link-chain-err">${escHtml(r.error)}</div>` : '');
+
+      html += `
+        <div class="link-item status-${cat}">
+          <span class="link-badge badge-${cat}">${escHtml(String(badge))}</span>
+          <div class="link-body">
+            <div class="link-url" title="${escHtml(r.url)}">${escHtml(shortenUrl(r.url))}</div>
+            ${r.text ? `<div class="link-text">${escHtml(r.text)}</div>` : ''}
+            ${chainHtml}
+          </div>
+        </div>`;
+    });
+    html += '</div>';
+    linksListEl.innerHTML = html;
+  }
+
+  function shortenUrl(u) {
+    try {
+      const url = new URL(u);
+      let s = url.protocol + '//' + url.host + url.pathname + url.search;
+      if (s.length > 90) s = s.slice(0, 88) + '…';
+      return s;
+    } catch (e) {
+      return u.length > 90 ? u.slice(0, 88) + '…' : u;
+    }
+  }
+
   // ──── Format JSON with syntax highlighting ────
   function formatJson(obj, indent = 0) {
     const spaces = '  '.repeat(indent);
@@ -468,6 +689,12 @@ document.addEventListener('DOMContentLoaded', () => {
       actionBtn.textContent = '📋 复制 Content';
     } else if (currentTab === 'indexability') {
       actionBtn.textContent = '📋 复制 Indexability';
+    } else if (currentTab === 'links') {
+      if (linkResults && linkResults.length) {
+        actionBtn.textContent = `📋 复制 ${linkResults.length} 条链接`;
+      } else {
+        actionBtn.textContent = '📋 复制链接';
+      }
     } else {
       const count = (pageData.schemas || []).length;
       if (count === 0) {
@@ -501,8 +728,17 @@ document.addEventListener('DOMContentLoaded', () => {
       } else {
         text += 'Hreflangs: (none)\n';
       }
+    } else if (currentTab === 'links') {
+      if (!linkResults || !linkResults.length) return;
+      text = linkResults.map(r => {
+        const cat = classifyResult(r);
+        const code = r.error ? `ERR(${r.error})` : (r.finalStatus != null ? r.finalStatus : '???');
+        const chain = (r.chain && r.chain.length)
+          ? ' [' + r.chain.map(h => h.status).join('→') + ']'
+          : '';
+        return `${code}${chain}\t${r.url}`;
+      }).join('\n');
     } else {
-      // Schema tab — copy all as JSON
       const allData = pageData.schemas.map(s => s.data);
       text = JSON.stringify(allData, null, 2);
     }

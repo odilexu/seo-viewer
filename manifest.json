@@ -1,10 +1,13 @@
 {
   "manifest_version": 3,
   "name": "SEO Inspector",
-  "version": "1.0.0",
-  "description": "页面 SEO 检查工具：Content / Indexability / Schema Markup 三合一",
-  "permissions": ["activeTab", "scripting"],
+  "version": "1.1.0",
+  "description": "页面 SEO 检查工具：Content / Indexability / Schema Markup / Links 四合一",
+  "permissions": ["activeTab", "scripting", "webRequest"],
   "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "action": {
     "default_popup": "popup.html",
     "default_title": "SEO Inspector",

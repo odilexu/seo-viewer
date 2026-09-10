@@ -22,6 +22,7 @@
         <button class="tab active" data-tab="content">📋 Content</button>
         <button class="tab" data-tab="indexability">🔗 Indexability</button>
         <button class="tab" data-tab="schema">📊 Schema Markup</button>
+        <button class="tab" data-tab="links">🔗 Links</button>
       </nav>
 
       <!-- Right Content Area -->
@@ -39,6 +40,19 @@
         <!-- Tab: Schema Markup -->
         <div id="tab-schema" class="tab-panel">
           <div id="schema-list" class="schema-list"></div>
+        </div>
+
+        <!-- Tab: Links -->
+        <div id="tab-links" class="tab-panel">
+          <div id="links-toolbar" class="links-toolbar" style="display:none;">
+            <span id="links-summary" class="links-summary"></span>
+            <span class="links-filters">
+              <button class="filter-btn active" data-filter="all">全部</button>
+              <button class="filter-btn" data-filter="error">仅错误</button>
+              <button class="filter-btn" data-filter="redirect">仅重定向</button>
+            </span>
+          </div>
+          <div id="links-list" class="links-list"></div>
         </div>
       </div>
     </div>
